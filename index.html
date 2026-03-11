@@ -51,6 +51,16 @@
       letter-spacing: 0.1em;
     }
 
+    #raw-display {
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #475569;
+      background: #1e293b;
+      border-radius: 0.4rem;
+      padding: 0.4rem 0.8rem;
+      letter-spacing: 0.05em;
+    }
+
     #status {
       font-size: 0.9rem;
       padding: 0.4rem 1rem;
@@ -111,11 +121,14 @@
 <body>
 
   <h1>❤ Heart Rate Monitor</h1>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.2.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
     <span id="hr-unit">BPM</span>
   </div>
+
+  <div id="raw-display">raw: —</div>
 
   <div id="status">Disconnected</div>
 
@@ -127,13 +140,14 @@
   <div id="log"></div>
 
 <script>
-  // Standard BLE GATT UUIDs for Heart Rate
-  const HR_SERVICE        = 'heart_rate';            // 0x180D
-  const HR_MEASUREMENT    = 'heart_rate_measurement'; // 0x2A37
+  // Custom BLE UUIDs for this device (0xFFE0 service family)
+  const CUSTOM_SERVICE        = '0000ffe0-0000-1000-8000-00805f9b34fb';
+  const CUSTOM_CHARACTERISTIC = '0000ffe4-0000-1000-8000-00805f9b34fb';
 
   const connectBtn    = document.getElementById('connect-btn');
   const disconnectBtn = document.getElementById('disconnect-btn');
   const hrValue       = document.getElementById('hr-value');
+  const rawDisplay    = document.getElementById('raw-display');
   const statusEl      = document.getElementById('status');
   const logEl         = document.getElementById('log');
 
@@ -149,20 +163,28 @@
     logEl.prepend(p);
   }
 
-  // ── Heart Rate Parsing ─────────────────────────────────────────────────────
-  // Per Bluetooth spec (GATT Characteristic 0x2A37):
-  //   Byte 0 — flags:
-  //     bit 0 → 0 = HR is uint8, 1 = HR is uint16
-  //     bit 2 → Energy Expended field present
-  //     bit 3 → RR-Interval fields present
-  //   Byte 1 (or 1-2) — heart rate value
+  // ── Data Parsing ───────────────────────────────────────────────────────────
+  // Packet format for this device (0xFFE4 characteristic):
+  //   Byte 0: header (0xFE)
+  //   Byte 1: packet length
+  //   Remaining bytes: payload (protocol TBD — displayed raw for now)
 
-  function parseHeartRate(dataView) {
-    const flags = dataView.getUint8(0);
-    const is16bit = flags & 0x01;
-    return is16bit
-      ? dataView.getUint16(1, /*littleEndian=*/true)
-      : dataView.getUint8(1);
+  function toHex(dataView) {
+    const bytes = [];
+    for (let i = 0; i < dataView.byteLength; i++) {
+      bytes.push(dataView.getUint8(i).toString(16).padStart(2, '0'));
+    }
+    return bytes.join(' ');
+  }
+
+  function onNotification(event) {
+    const dv = event.target.value;
+    const hex = toHex(dv);
+    rawDisplay.textContent = `raw: ${hex}`;
+    log(`Packet: ${hex}`);
+
+    // TODO: parse heart rate once packet format is confirmed
+    // hrValue.textContent = dv.getUint8(?);
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────────────
@@ -170,16 +192,6 @@
   function setStatus(text, cls = '') {
     statusEl.textContent = text;
     statusEl.className = cls;
-  }
-
-  function onHeartRateChange(event) {
-    const bpm = parseHeartRate(event.target.value);
-    hrValue.textContent = bpm;
-
-    // Brief scale animation on each reading
-    hrValue.classList.remove('beat');
-    void hrValue.offsetWidth; // reflow to restart animation
-    hrValue.classList.add('beat');
   }
 
   // ── Connect ────────────────────────────────────────────────────────────────
@@ -197,7 +209,7 @@
 
       device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
-        optionalServices: [HR_SERVICE],
+        optionalServices: [CUSTOM_SERVICE],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
@@ -207,13 +219,13 @@
       const server  = await device.gatt.connect();
       log('GATT server connected');
 
-      const service = await server.getPrimaryService(HR_SERVICE);
-      characteristic = await service.getCharacteristic(HR_MEASUREMENT);
+      const service = await server.getPrimaryService(CUSTOM_SERVICE);
+      characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
 
-      characteristic.addEventListener('characteristicvaluechanged', onHeartRateChange);
+      characteristic.addEventListener('characteristicvaluechanged', onNotification);
       await characteristic.startNotifications();
 
-      log('Notifications started — reading heart rate');
+      log('Notifications started');
       setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
       disconnectBtn.style.display = 'inline-block';
 
@@ -228,7 +240,7 @@
 
   disconnectBtn.addEventListener('click', () => {
     if (device?.gatt.connected) {
-      device.gatt.disconnect(); // triggers onDisconnected
+      device.gatt.disconnect();
     }
   });
 
@@ -236,6 +248,7 @@
     log('Device disconnected');
     setStatus('Disconnected');
     hrValue.textContent = '--';
+    rawDisplay.textContent = 'raw: —';
     connectBtn.disabled = false;
     disconnectBtn.style.display = 'none';
     characteristic = null;
