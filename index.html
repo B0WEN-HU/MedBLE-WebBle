@@ -196,8 +196,8 @@
       log('Requesting BLE device…');
 
       device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [HR_SERVICE] }],
-        // Alternatively use acceptAllDevices: true + optionalServices
+        acceptAllDevices: true,
+        optionalServices: [HR_SERVICE],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
