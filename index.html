@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Heart Rate Monitor</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.3.0</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.4.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -181,6 +181,13 @@
     const dv = event.target.value;
     const hex = toHex(dv);
     rawDisplay.textContent = `raw: ${hex}`;
+
+    // Only process packets where byte 2 (3rd byte) == 0x55
+    if (dv.byteLength < 3 || dv.getUint8(2) !== 0x55) {
+      log(`Packet ignored (byte[2] != 0x55): ${hex}`);
+      return;
+    }
+
     log(`Packet: ${hex}`);
 
     // Byte index 5 (6th byte) = oxygen value
