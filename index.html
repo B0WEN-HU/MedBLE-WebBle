@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.7.0</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.5.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -221,17 +221,11 @@
       log('Requesting BLE device…');
 
       device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [CUSTOM_SERVICE] }],
+        acceptAllDevices: true,
+        optionalServices: [CUSTOM_SERVICE],
       });
 
-      if (!device.name) {
-        log('Device has no name — ignored', 'warn');
-        setStatus('Disconnected');
-        connectBtn.disabled = false;
-        return;
-      }
-
-      log(`Device selected: ${device.name}`);
+      log(`Device selected: ${device.name ?? '(unnamed)'}`);
       device.addEventListener('gattserverdisconnected', onDisconnected);
 
       setStatus('Connecting…');
