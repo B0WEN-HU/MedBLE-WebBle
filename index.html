@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.5.0</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -221,8 +221,7 @@
       log('Requesting BLE device…');
 
       device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [CUSTOM_SERVICE],
+        filters: [{ services: [CUSTOM_SERVICE], namePrefix: '' }],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
