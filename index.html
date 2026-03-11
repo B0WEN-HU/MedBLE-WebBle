@@ -121,11 +121,11 @@
 <body>
 
   <h1>❤ Heart Rate Monitor</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.2.0</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.3.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
-    <span id="hr-unit">BPM</span>
+    <span id="hr-unit">Oxygen</span>
   </div>
 
   <div id="raw-display">raw: —</div>
@@ -183,8 +183,14 @@
     rawDisplay.textContent = `raw: ${hex}`;
     log(`Packet: ${hex}`);
 
-    // TODO: parse heart rate once packet format is confirmed
-    // hrValue.textContent = dv.getUint8(?);
+    // Byte index 5 (6th byte) = oxygen value
+    if (dv.byteLength > 5) {
+      const oxygen = dv.getUint8(5);
+      hrValue.textContent = oxygen;
+      hrValue.classList.remove('beat');
+      void hrValue.offsetWidth;
+      hrValue.classList.add('beat');
+    }
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────────────
