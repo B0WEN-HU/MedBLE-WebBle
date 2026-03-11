@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heart Rate Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 2rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+    }
+
+    #hr-display {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    #hr-value {
+      font-size: 8rem;
+      font-weight: 700;
+      line-height: 1;
+      color: #f43f5e;
+      font-variant-numeric: tabular-nums;
+      transition: transform 0.1s ease;
+    }
+
+    #hr-value.beat {
+      transform: scale(1.08);
+    }
+
+    #hr-unit {
+      font-size: 1.1rem;
+      color: #64748b;
+      letter-spacing: 0.1em;
+    }
+
+    #status {
+      font-size: 0.9rem;
+      padding: 0.4rem 1rem;
+      border-radius: 9999px;
+      background: #1e293b;
+      color: #64748b;
+    }
+
+    #status.connected { color: #4ade80; }
+    #status.error     { color: #f87171; }
+
+    #connect-btn {
+      padding: 0.75rem 2rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      background: #f43f5e;
+      color: #fff;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    #connect-btn:hover:not(:disabled) { background: #e11d48; }
+    #connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #disconnect-btn {
+      padding: 0.4rem 1.2rem;
+      font-size: 0.85rem;
+      border: 1px solid #334155;
+      border-radius: 0.4rem;
+      cursor: pointer;
+      background: transparent;
+      color: #94a3b8;
+      display: none;
+    }
+
+    #disconnect-btn:hover { border-color: #f43f5e; color: #f43f5e; }
+
+    #log {
+      width: min(480px, 90vw);
+      max-height: 160px;
+      overflow-y: auto;
+      font-size: 0.78rem;
+      font-family: monospace;
+      color: #475569;
+      background: #1e293b;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      line-height: 1.6;
+    }
+
+    #log p { margin: 0; }
+    #log p.warn  { color: #fbbf24; }
+    #log p.error { color: #f87171; }
+  </style>
+</head>
+<body>
+
+  <h1>❤ Heart Rate Monitor</h1>
+
+  <div id="hr-display">
+    <span id="hr-value">--</span>
+    <span id="hr-unit">BPM</span>
+  </div>
+
+  <div id="status">Disconnected</div>
+
+  <div style="display:flex;gap:0.75rem;align-items:center">
+    <button id="connect-btn">Connect Device</button>
+    <button id="disconnect-btn">Disconnect</button>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+  // Standard BLE GATT UUIDs for Heart Rate
+  const HR_SERVICE        = 'heart_rate';            // 0x180D
+  const HR_MEASUREMENT    = 'heart_rate_measurement'; // 0x2A37
+
+  const connectBtn    = document.getElementById('connect-btn');
+  const disconnectBtn = document.getElementById('disconnect-btn');
+  const hrValue       = document.getElementById('hr-value');
+  const statusEl      = document.getElementById('status');
+  const logEl         = document.getElementById('log');
+
+  let device = null;
+  let characteristic = null;
+
+  // ── Logging ────────────────────────────────────────────────────────────────
+
+  function log(msg, level = 'info') {
+    const p = document.createElement('p');
+    p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    if (level !== 'info') p.className = level;
+    logEl.prepend(p);
+  }
+
+  // ── Heart Rate Parsing ─────────────────────────────────────────────────────
+  // Per Bluetooth spec (GATT Characteristic 0x2A37):
+  //   Byte 0 — flags:
+  //     bit 0 → 0 = HR is uint8, 1 = HR is uint16
+  //     bit 2 → Energy Expended field present
+  //     bit 3 → RR-Interval fields present
+  //   Byte 1 (or 1-2) — heart rate value
+
+  function parseHeartRate(dataView) {
+    const flags = dataView.getUint8(0);
+    const is16bit = flags & 0x01;
+    return is16bit
+      ? dataView.getUint16(1, /*littleEndian=*/true)
+      : dataView.getUint8(1);
+  }
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+
+  function setStatus(text, cls = '') {
+    statusEl.textContent = text;
+    statusEl.className = cls;
+  }
+
+  function onHeartRateChange(event) {
+    const bpm = parseHeartRate(event.target.value);
+    hrValue.textContent = bpm;
+
+    // Brief scale animation on each reading
+    hrValue.classList.remove('beat');
+    void hrValue.offsetWidth; // reflow to restart animation
+    hrValue.classList.add('beat');
+  }
+
+  // ── Connect ────────────────────────────────────────────────────────────────
+
+  connectBtn.addEventListener('click', async () => {
+    if (!navigator.bluetooth) {
+      log('Web Bluetooth API not available. Use Chrome on a supported OS.', 'error');
+      return;
+    }
+
+    try {
+      connectBtn.disabled = true;
+      setStatus('Scanning…');
+      log('Requesting BLE device…');
+
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [HR_SERVICE] }],
+        // Alternatively use acceptAllDevices: true + optionalServices
+      });
+
+      log(`Device selected: ${device.name ?? '(unnamed)'}`);
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+
+      setStatus('Connecting…');
+      const server  = await device.gatt.connect();
+      log('GATT server connected');
+
+      const service = await server.getPrimaryService(HR_SERVICE);
+      characteristic = await service.getCharacteristic(HR_MEASUREMENT);
+
+      characteristic.addEventListener('characteristicvaluechanged', onHeartRateChange);
+      await characteristic.startNotifications();
+
+      log('Notifications started — reading heart rate');
+      setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
+      disconnectBtn.style.display = 'inline-block';
+
+    } catch (err) {
+      log(`Error: ${err.message}`, 'error');
+      setStatus('Error', 'error');
+      connectBtn.disabled = false;
+    }
+  });
+
+  // ── Disconnect ─────────────────────────────────────────────────────────────
+
+  disconnectBtn.addEventListener('click', () => {
+    if (device?.gatt.connected) {
+      device.gatt.disconnect(); // triggers onDisconnected
+    }
+  });
+
+  function onDisconnected() {
+    log('Device disconnected');
+    setStatus('Disconnected');
+    hrValue.textContent = '--';
+    connectBtn.disabled = false;
+    disconnectBtn.style.display = 'none';
+    characteristic = null;
+    device = null;
+  }
+</script>
+</body>
+</html>
