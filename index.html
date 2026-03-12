@@ -224,7 +224,9 @@
       const known  = navigator.bluetooth.getDevices
         ? await navigator.bluetooth.getDevices()
         : [];
+      log(`Known devices: ${known.length} (${known.map(d => d.name ?? d.id).join(', ') || 'none'})`);
       const lastId = localStorage.getItem('lastDeviceId');
+      log(`Last device ID: ${lastId ?? 'none'}`);
       const preferred = known.find(d => d.id === lastId) ?? known[0];
 
       if (preferred) {
