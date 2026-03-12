@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.2</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.3</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -236,15 +236,17 @@
         // First attempt
         let server = await device.gatt.connect().catch(e => e);
         if (server instanceof Error) {
-          // Opening and immediately aborting the picker resets Chrome's BLE state
+          // Calling requestDevice() resets Chrome's BLE state; abort it immediately
+          // so the picker never renders
           log('First attempt failed, resetting BLE state…', 'warn');
           const abort = new AbortController();
-          setTimeout(() => abort.abort(), 200);
-          await navigator.bluetooth.requestDevice({
+          const resetPromise = navigator.bluetooth.requestDevice({
             filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
             optionalServices: [CUSTOM_SERVICE],
             signal: abort.signal,
           }).catch(() => {});
+          abort.abort();
+          await resetPromise;
           server = await device.gatt.connect();
         }
 
