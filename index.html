@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pulse Oximeter</title>
+  <title>Heart Rate Monitor</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -120,8 +120,8 @@
 </head>
 <body>
 
-  <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.0</span>
+  <h1>❤ Heart Rate Monitor</h1>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.5.0</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -220,31 +220,32 @@
       setStatus('Scanning…');
       log('Requesting BLE device…');
 
-      const known = navigator.bluetooth.getDevices
+      // Try to reconnect to the last used device without showing the picker
+      const lastId = localStorage.getItem('lastDeviceId');
+      const known  = navigator.bluetooth.getDevices
         ? await navigator.bluetooth.getDevices()
         : [];
-      const lastId = localStorage.getItem('lastDeviceId');
-      const preferred = (lastId && known.find(d => d.id === lastId)) ?? known[0];
+      const preferred = known.find(d => d.id === lastId) ?? known[0];
 
       if (preferred) {
-        log(`Reconnecting to ${preferred.name ?? preferred.id}…`);
+        log(`Trying last device: ${preferred.name ?? preferred.id}…`);
         try {
           device = preferred;
-          localStorage.setItem('lastDeviceId', device.id);
           device.addEventListener('gattserverdisconnected', onDisconnected);
           setStatus('Connecting…');
           const server = await device.gatt.connect();
-          log('GATT server connected');
           const service = await server.getPrimaryService(CUSTOM_SERVICE);
           characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
           characteristic.addEventListener('characteristicvaluechanged', onNotification);
           await characteristic.startNotifications();
+          localStorage.setItem('lastDeviceId', device.id);
           log('Notifications started');
           setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
           disconnectBtn.style.display = 'inline-block';
+          connectBtn.disabled = false;
           return;
         } catch (err) {
-          log(`Reconnect failed (${err.message}), opening picker…`, 'warn');
+          log(`Auto-connect failed: ${err.message} — opening picker…`, 'warn');
           localStorage.removeItem('lastDeviceId');
           device = null;
         }
@@ -256,7 +257,6 @@
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
-      localStorage.setItem('lastDeviceId', device.id);
       device.addEventListener('gattserverdisconnected', onDisconnected);
 
       setStatus('Connecting…');
@@ -269,6 +269,7 @@
       characteristic.addEventListener('characteristicvaluechanged', onNotification);
       await characteristic.startNotifications();
 
+      localStorage.setItem('lastDeviceId', device.id);
       log('Notifications started');
       setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
       disconnectBtn.style.display = 'inline-block';
