@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.3</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.2</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -207,36 +207,6 @@
     statusEl.className = cls;
   }
 
-  // ── Connect helpers ────────────────────────────────────────────────────────
-
-  async function gattConnect(dev) {
-    // Retry once — Chrome sometimes reports "not in range" on first attempt
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        return await dev.gatt.connect();
-      } catch (err) {
-        if (attempt === 2) throw err;
-        log(`Connection attempt ${attempt} failed, retrying…`, 'warn');
-        await new Promise(r => setTimeout(r, 1500));
-      }
-    }
-  }
-
-  async function doConnect(dev) {
-    setStatus('Connecting…');
-    const server = await gattConnect(dev);
-    log('GATT server connected');
-    const service = await server.getPrimaryService(CUSTOM_SERVICE);
-    characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
-    characteristic.addEventListener('characteristicvaluechanged', onNotification);
-    await characteristic.startNotifications();
-    localStorage.setItem('lastDeviceId', dev.id);
-    log('Notifications started');
-    setStatus(`Connected — ${dev.name ?? dev.id}`, 'connected');
-    disconnectBtn.style.display = 'inline-block';
-    connectBtn.disabled = false;
-  }
-
   // ── Connect ────────────────────────────────────────────────────────────────
 
   connectBtn.addEventListener('click', async () => {
@@ -248,6 +218,7 @@
     try {
       connectBtn.disabled = true;
       setStatus('Scanning…');
+      log('Requesting BLE device…');
 
       // On subsequent visits, reconnect directly without the picker
       const known  = navigator.bluetooth.getDevices
@@ -258,30 +229,61 @@
 
       if (preferred) {
         log(`Reconnecting to ${preferred.name ?? preferred.id}…`);
-        try {
-          device = preferred;
-          device.addEventListener('gattserverdisconnected', onDisconnected);
-          await doConnect(device);
-          return;
-        } catch (err) {
-          log(`Auto-connect failed, tap Connect to retry.`, 'warn');
-          setStatus('Tap Connect to retry');
-          device = null;
-          connectBtn.disabled = false;
-          return;
+        device = preferred;
+        device.addEventListener('gattserverdisconnected', onDisconnected);
+        setStatus('Connecting…');
+
+        // First attempt
+        let server = await device.gatt.connect().catch(e => e);
+        if (server instanceof Error) {
+          // Opening and immediately aborting the picker resets Chrome's BLE state
+          log('First attempt failed, resetting BLE state…', 'warn');
+          const abort = new AbortController();
+          setTimeout(() => abort.abort(), 200);
+          await navigator.bluetooth.requestDevice({
+            filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
+            optionalServices: [CUSTOM_SERVICE],
+            signal: abort.signal,
+          }).catch(() => {});
+          server = await device.gatt.connect();
         }
+
+        log('GATT server connected');
+        const service = await server.getPrimaryService(CUSTOM_SERVICE);
+        characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
+        characteristic.addEventListener('characteristicvaluechanged', onNotification);
+        await characteristic.startNotifications();
+        localStorage.setItem('lastDeviceId', device.id);
+        log('Notifications started');
+        setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
+        disconnectBtn.style.display = 'inline-block';
+        connectBtn.disabled = false;
+        return;
       }
 
       // Filter by advertised UUID (0xFFF0) — device doesn't advertise 0xFFE0 until connected
-      log('Requesting BLE device…');
       device = await navigator.bluetooth.requestDevice({
         filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
         optionalServices: [CUSTOM_SERVICE],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
+      localStorage.setItem('lastDeviceId', device.id);
       device.addEventListener('gattserverdisconnected', onDisconnected);
-      await doConnect(device);
+
+      setStatus('Connecting…');
+      const server  = await device.gatt.connect();
+      log('GATT server connected');
+
+      const service = await server.getPrimaryService(CUSTOM_SERVICE);
+      characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
+
+      characteristic.addEventListener('characteristicvaluechanged', onNotification);
+      await characteristic.startNotifications();
+
+      log('Notifications started');
+      setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
+      disconnectBtn.style.display = 'inline-block';
 
     } catch (err) {
       log(`Error: ${err.message}`, 'error');
