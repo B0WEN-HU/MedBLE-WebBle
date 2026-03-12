@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.0</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.2</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -207,6 +207,36 @@
     statusEl.className = cls;
   }
 
+  // ── Connect helpers ────────────────────────────────────────────────────────
+
+  async function gattConnect(dev) {
+    // Retry once — Chrome sometimes reports "not in range" on first attempt
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return await dev.gatt.connect();
+      } catch (err) {
+        if (attempt === 2) throw err;
+        log(`Connection attempt ${attempt} failed, retrying…`, 'warn');
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+  }
+
+  async function doConnect(dev) {
+    setStatus('Connecting…');
+    const server = await gattConnect(dev);
+    log('GATT server connected');
+    const service = await server.getPrimaryService(CUSTOM_SERVICE);
+    characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
+    characteristic.addEventListener('characteristicvaluechanged', onNotification);
+    await characteristic.startNotifications();
+    localStorage.setItem('lastDeviceId', dev.id);
+    log('Notifications started');
+    setStatus(`Connected — ${dev.name ?? dev.id}`, 'connected');
+    disconnectBtn.style.display = 'inline-block';
+    connectBtn.disabled = false;
+  }
+
   // ── Connect ────────────────────────────────────────────────────────────────
 
   connectBtn.addEventListener('click', async () => {
@@ -218,15 +248,12 @@
     try {
       connectBtn.disabled = true;
       setStatus('Scanning…');
-      log('Requesting BLE device…');
 
       // On subsequent visits, reconnect directly without the picker
       const known  = navigator.bluetooth.getDevices
         ? await navigator.bluetooth.getDevices()
         : [];
-      log(`Known devices: ${known.length} (${known.map(d => d.name ?? d.id).join(', ') || 'none'})`);
       const lastId = localStorage.getItem('lastDeviceId');
-      log(`Last device ID: ${lastId ?? 'none'}`);
       const preferred = known.find(d => d.id === lastId) ?? known[0];
 
       if (preferred) {
@@ -234,17 +261,7 @@
         try {
           device = preferred;
           device.addEventListener('gattserverdisconnected', onDisconnected);
-          setStatus('Connecting…');
-          const server = await device.gatt.connect();
-          const service = await server.getPrimaryService(CUSTOM_SERVICE);
-          characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
-          characteristic.addEventListener('characteristicvaluechanged', onNotification);
-          await characteristic.startNotifications();
-          localStorage.setItem('lastDeviceId', device.id);
-          log('Notifications started');
-          setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
-          disconnectBtn.style.display = 'inline-block';
-          connectBtn.disabled = false;
+          await doConnect(device);
           return;
         } catch (err) {
           log(`Auto-connect failed: ${err.message} — opening picker…`, 'warn');
@@ -254,28 +271,15 @@
       }
 
       // Filter by advertised UUID (0xFFF0) — device doesn't advertise 0xFFE0 until connected
+      log('Requesting BLE device…');
       device = await navigator.bluetooth.requestDevice({
         filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
         optionalServices: [CUSTOM_SERVICE],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
-      localStorage.setItem('lastDeviceId', device.id);
       device.addEventListener('gattserverdisconnected', onDisconnected);
-
-      setStatus('Connecting…');
-      const server  = await device.gatt.connect();
-      log('GATT server connected');
-
-      const service = await server.getPrimaryService(CUSTOM_SERVICE);
-      characteristic = await service.getCharacteristic(CUSTOM_CHARACTERISTIC);
-
-      characteristic.addEventListener('characteristicvaluechanged', onNotification);
-      await characteristic.startNotifications();
-
-      log('Notifications started');
-      setStatus(`Connected — ${device.name ?? device.id}`, 'connected');
-      disconnectBtn.style.display = 'inline-block';
+      await doConnect(device);
 
     } catch (err) {
       log(`Error: ${err.message}`, 'error');
