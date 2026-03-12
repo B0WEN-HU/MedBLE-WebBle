@@ -251,9 +251,10 @@
         }
       }
 
-      // First time: filter by service so only matching devices appear (faster picker)
+      // Filter by advertised UUID (0xFFF0) — device doesn't advertise 0xFFE0 until connected
       device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [CUSTOM_SERVICE] }],
+        filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
+        optionalServices: [CUSTOM_SERVICE],
       });
 
       log(`Device selected: ${device.name ?? '(unnamed)'}`);
