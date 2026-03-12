@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.4</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.5</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -236,10 +236,19 @@
         // First attempt
         let server = await device.gatt.connect().catch(e => e);
         if (server instanceof Error) {
-          // Reset GATT state and wait before retrying
-          log('First attempt failed, retrying in 3s…', 'warn');
-          device.gatt.disconnect();
-          await new Promise(r => setTimeout(r, 3000));
+          // Chrome needs to re-scan before gatt.connect() will work.
+          // Open the picker, let it scan for 3s, then auto-close it.
+          log('Scanning to wake device… (do not interact with picker)', 'warn');
+          setStatus('Scanning…');
+          const abort = new AbortController();
+          setTimeout(() => abort.abort(), 3000);
+          await navigator.bluetooth.requestDevice({
+            filters: [{ services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }],
+            optionalServices: [CUSTOM_SERVICE],
+            signal: abort.signal,
+          }).catch(() => {});
+          log('Scan done, connecting…');
+          setStatus('Connecting…');
           server = await device.gatt.connect();
         }
 
