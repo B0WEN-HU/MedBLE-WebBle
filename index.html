@@ -121,7 +121,7 @@
 <body>
 
   <h1>❤ Pulse Oximeter</h1>
-  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.2</span>
+  <span style="font-size:0.75rem;color:#334155;letter-spacing:0.05em;">v1.6.3</span>
 
   <div id="hr-display">
     <span id="hr-value">--</span>
@@ -264,9 +264,11 @@
           await doConnect(device);
           return;
         } catch (err) {
-          log(`Auto-connect failed: ${err.message} — opening picker…`, 'warn');
-          localStorage.removeItem('lastDeviceId');
+          log(`Auto-connect failed, tap Connect to retry.`, 'warn');
+          setStatus('Tap Connect to retry');
           device = null;
+          connectBtn.disabled = false;
+          return;
         }
       }
 
